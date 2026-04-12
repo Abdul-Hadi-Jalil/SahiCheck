@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "797941302742",
+    "project_id": "sahicheck-12d7e",
+    "storage_bucket": "sahicheck-12d7e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:797941302742:android:06cee0f9e7810e7f909077",
+        "android_client_info": {
+          "package_name": "com.example.sahicheck_frontend"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCJV4B-w779SlPKF9l9gShds9xPqWE0PUQ"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
