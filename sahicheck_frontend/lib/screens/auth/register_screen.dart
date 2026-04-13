@@ -14,6 +14,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController passwordController = TextEditingController();
   final TextEditingController confirmPasswordController =
       TextEditingController();
+
+  String? email;
+  String? password;
+  String? confirmPassword;
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -68,9 +73,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
           const SizedBox(height: 20),
           ElevatedButton(
             onPressed: () async {
+              email = emailController.text.trim();
+              password = passwordController.text.trim();
+
               FirebaseAuth.instance.createUserWithEmailAndPassword(
-                email: emailController.toString().trim(),
-                password: passwordController.toString().trim(),
+                email: email!,
+                password: password!,
               );
             },
             child: Text('Sign Up'),
