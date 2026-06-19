@@ -1,5 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
+import os
 import pickle
 import numpy as np
 import pandas as pd
@@ -42,32 +43,77 @@ with open("saved_models/fake_news_simple_tfidf.pkl", "rb") as f:
     text_extractor = pickle.load(f)
 
 # ===============================
-# DATABASE CONNECTIONS
+# DATABASE CONNECTIONS (lazy)
 # ===============================
 
-# MongoDB Atlas - for raw input storage
-mongo_client = MongoClient("mongodb+srv://sahicheck:abdul123@cluster0.j7cc48l.mongodb.net/?appName=Cluster0")
-mongo_db = mongo_client["sahicheck"]
-mongo_inputs_collection = mongo_db["raw_inputs"]
+# Use environment variables so the app can start even when a database
+# is temporarily unavailable. Placeholders are used as defaults.
+MONGO_URI = os.getenv("MONGO_URI", "YOUR_MONGO_CONNECTION")
+POSTGRES_HOST = os.getenv("POSTGRES_HOST", "localhost")
+POSTGRES_DB = os.getenv("POSTGRES_DB", "sahicheck")
+POSTGRES_USER = os.getenv("POSTGRES_USER", "postgres")
+POSTGRES_PASSWORD = os.getenv("POSTGRES_PASSWORD", "abdul123")
 
-# PostgreSQL
-pg_conn = psycopg2.connect(
-    host="localhost",
-    database="sahicheck",
-    user="postgres",
-    password="abdul123"
-)
-pg_cursor = pg_conn.cursor()
+mongo_client = None
+mongo_inputs_collection = None
+pg_conn = None
+pg_cursor = None
 
-# ===============================
-# SET SCHEMA PATH
-# ===============================
 
-# Set the search path to use sahicheck_schema
-pg_cursor.execute("SET search_path TO sahicheck_schema, public")
-pg_conn.commit()
-print("Connected to PostgreSQL 13 - Using sahicheck_schema")
-print("Connected to MongoDB Atlas - Using sahicheck database")
+def get_mongo_collection():
+    """
+    Connect to MongoDB only when needed.
+    Returns None if MongoDB is not configured or unreachable.
+    """
+    global mongo_client, mongo_inputs_collection
+
+    if mongo_inputs_collection is not None:
+        return mongo_inputs_collection
+
+    if MONGO_URI == "YOUR_MONGO_CONNECTION":
+        print("MongoDB not configured. Skipping raw input storage.")
+        return None
+
+    try:
+        mongo_client = MongoClient(MONGO_URI, serverSelectionTimeoutMS=5000)
+        mongo_client.admin.command("ping")
+        mongo_inputs_collection = mongo_client["sahicheck"]["raw_inputs"]
+        print("Connected to MongoDB")
+        return mongo_inputs_collection
+    except Exception as mongo_error:
+        print(f"MongoDB connection failed: {mongo_error}")
+        mongo_client = None
+        mongo_inputs_collection = None
+        return None
+
+
+def get_pg_cursor():
+    """
+    Connect to PostgreSQL only when needed.
+    Returns None if PostgreSQL is unreachable.
+    """
+    global pg_conn, pg_cursor
+
+    if pg_cursor is not None:
+        return pg_cursor
+
+    try:
+        pg_conn = psycopg2.connect(
+            host=POSTGRES_HOST,
+            database=POSTGRES_DB,
+            user=POSTGRES_USER,
+            password=POSTGRES_PASSWORD,
+        )
+        pg_cursor = pg_conn.cursor()
+        pg_cursor.execute("SET search_path TO sahicheck_schema, public")
+        pg_conn.commit()
+        print("Connected to PostgreSQL - Using sahicheck_schema")
+        return pg_cursor
+    except Exception as pg_error:
+        print(f"PostgreSQL connection failed: {pg_error}")
+        pg_conn = None
+        pg_cursor = None
+        return None
 
 # ===============================
 # REQUEST MODELS
@@ -283,21 +329,23 @@ def detect_fake_news(data: NewsInput):
         result = "Fake News" if prediction == 1 else "True News"
         confidence = float(max(prediction_proba))
         
-        # Save raw input to MongoDB
-        try:
-            mongo_inputs_collection.insert_one({
-                "type": "fake_news",
-                "raw_input": {
-                    "title": data.title,
-                    "text": data.text,
-                    "user_id": data.user_id
-                },
-                "timestamp": datetime.now(),
-                "ip_address": None,  # Will be populated from request if needed
-                "user_agent": None   # Will be populated from request if needed
-            })
-        except Exception as mongo_error:
-            print(f"MongoDB error: {mongo_error}")
+        # Save raw input to MongoDB (optional)
+        mongo_collection = get_mongo_collection()
+        if mongo_collection is not None:
+            try:
+                mongo_collection.insert_one({
+                    "type": "fake_news",
+                    "raw_input": {
+                        "title": data.title,
+                        "text": data.text,
+                        "user_id": data.user_id
+                    },
+                    "timestamp": datetime.now(),
+                    "ip_address": None,
+                    "user_agent": None
+                })
+            except Exception as mongo_error:
+                print(f"MongoDB error: {mongo_error}")
         
         # Save to PostgreSQL (result with full data)
         import json
@@ -312,37 +360,39 @@ def detect_fake_news(data: NewsInput):
             "true_news": float(prediction_proba[0])
         }
         
-        try:
-            pg_cursor.execute(
-                """
-                INSERT INTO reports (user_id, type, input_data, result, confidence, ml_probabilities, created_at) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (data.user_id, "fake_news", json.dumps(input_data), result, confidence, json.dumps(ml_probabilities), datetime.now())
-            )
-            pg_conn.commit()
-        except Exception as db_error:
-            pg_conn.rollback()
-            print(f"Database error in reports: {db_error}")
-        
-        # Update analytics
-        try:
-            pg_cursor.execute(
-                """
-                INSERT INTO analytics (user_id, endpoint, request_count, avg_confidence, success_count, date, created_at)
-                VALUES (%s, %s, 1, %s, 1, CURRENT_DATE, CURRENT_TIMESTAMP)
-                ON CONFLICT (user_id, endpoint, date) 
-                DO UPDATE SET 
-                    request_count = analytics.request_count + 1,
-                    avg_confidence = (analytics.avg_confidence * analytics.request_count + %s) / (analytics.request_count + 1),
-                    success_count = analytics.success_count + 1
-                """,
-                (data.user_id, "/fake-news", confidence, confidence)
-            )
-            pg_conn.commit()
-        except Exception as db_error:
-            pg_conn.rollback()
-            print(f"Database error in analytics: {db_error}")
+        cursor = get_pg_cursor()
+        if cursor is not None:
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO reports (user_id, type, input_data, result, confidence, ml_probabilities, created_at) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (data.user_id, "fake_news", json.dumps(input_data), result, confidence, json.dumps(ml_probabilities), datetime.now())
+                )
+                pg_conn.commit()
+            except Exception as db_error:
+                pg_conn.rollback()
+                print(f"Database error in reports: {db_error}")
+            
+            # Update analytics
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO analytics (user_id, endpoint, request_count, avg_confidence, success_count, date, created_at)
+                    VALUES (%s, %s, 1, %s, 1, CURRENT_DATE, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id, endpoint, date) 
+                    DO UPDATE SET 
+                        request_count = analytics.request_count + 1,
+                        avg_confidence = (analytics.avg_confidence * analytics.request_count + %s) / (analytics.request_count + 1),
+                        success_count = analytics.success_count + 1
+                    """,
+                    (data.user_id, "/fake-news", confidence, confidence)
+                )
+                pg_conn.commit()
+            except Exception as db_error:
+                pg_conn.rollback()
+                print(f"Database error in analytics: {db_error}")
 
         return {
             "result": result,
@@ -375,20 +425,22 @@ def detect_phishing(data: URLInput):
         result = phishing_encoder.inverse_transform([prediction])[0]
         confidence = float(max(prediction_proba))
         
-        # Save raw input to MongoDB
-        try:
-            mongo_inputs_collection.insert_one({
-                "type": "phishing",
-                "raw_input": {
-                    "url": data.url,
-                    "user_id": data.user_id
-                },
-                "timestamp": datetime.now(),
-                "ip_address": None,  # Will be populated from request if needed
-                "user_agent": None   # Will be populated from request if needed
-            })
-        except Exception as mongo_error:
-            print(f"MongoDB error: {mongo_error}")
+        # Save raw input to MongoDB (optional)
+        mongo_collection = get_mongo_collection()
+        if mongo_collection is not None:
+            try:
+                mongo_collection.insert_one({
+                    "type": "phishing",
+                    "raw_input": {
+                        "url": data.url,
+                        "user_id": data.user_id
+                    },
+                    "timestamp": datetime.now(),
+                    "ip_address": None,
+                    "user_agent": None
+                })
+            except Exception as mongo_error:
+                print(f"MongoDB error: {mongo_error}")
         
         # Save to PostgreSQL (result with full data)
         input_data = {
@@ -401,38 +453,39 @@ def detect_phishing(data: URLInput):
             "legitimate": float(prediction_proba[0]) if len(prediction_proba) > 1 else 0.0
         }
         
-        # Save reports with separate transaction
-        try:
-            pg_cursor.execute(
-                """
-                INSERT INTO reports (user_id, type, input_data, result, confidence, ml_probabilities, created_at) 
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                """,
-                (data.user_id, "phishing", json.dumps(input_data), result, confidence, json.dumps(ml_probabilities), datetime.now())
-            )
-            pg_conn.commit()
-        except Exception as db_error:
-            pg_conn.rollback()
-            print(f"Database error in reports: {db_error}")
-        
-        # Update analytics with separate transaction
-        try:
-            pg_cursor.execute(
-                """
-                INSERT INTO analytics (user_id, endpoint, request_count, avg_confidence, success_count, date, created_at)
-                VALUES (%s, %s, 1, %s, 1, CURRENT_DATE, CURRENT_TIMESTAMP)
-                ON CONFLICT (user_id, endpoint, date) 
-                DO UPDATE SET 
-                    request_count = analytics.request_count + 1,
-                    avg_confidence = (analytics.avg_confidence * analytics.request_count + %s) / (analytics.request_count + 1),
-                    success_count = analytics.success_count + 1
-                """,
-                (data.user_id, "/phishing", confidence, confidence)
-            )
-            pg_conn.commit()
-        except Exception as db_error:
-            pg_conn.rollback()
-            print(f"Database error in analytics: {db_error}")
+        cursor = get_pg_cursor()
+        if cursor is not None:
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO reports (user_id, type, input_data, result, confidence, ml_probabilities, created_at) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (data.user_id, "phishing", json.dumps(input_data), result, confidence, json.dumps(ml_probabilities), datetime.now())
+                )
+                pg_conn.commit()
+            except Exception as db_error:
+                pg_conn.rollback()
+                print(f"Database error in reports: {db_error}")
+            
+            # Update analytics with separate transaction
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO analytics (user_id, endpoint, request_count, avg_confidence, success_count, date, created_at)
+                    VALUES (%s, %s, 1, %s, 1, CURRENT_DATE, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id, endpoint, date) 
+                    DO UPDATE SET 
+                        request_count = analytics.request_count + 1,
+                        avg_confidence = (analytics.avg_confidence * analytics.request_count + %s) / (analytics.request_count + 1),
+                        success_count = analytics.success_count + 1
+                    """,
+                    (data.user_id, "/phishing", confidence, confidence)
+                )
+                pg_conn.commit()
+            except Exception as db_error:
+                pg_conn.rollback()
+                print(f"Database error in analytics: {db_error}")
 
         return {
             "result": result,
@@ -461,27 +514,29 @@ def detect_fraud(data: TransactionInput):
         result = "Fraud" if prediction == 1 else "Legitimate"
         confidence = float(max(prediction_proba))
         
-        # Save raw input to MongoDB
-        try:
-            mongo_inputs_collection.insert_one({
-                "type": "fraud",
-                "raw_input": {
-                    "time": data.time,
-                    "amount": data.amount,
-                    "v1": data.v1, "v2": data.v2, "v3": data.v3, "v4": data.v4, "v5": data.v5,
-                    "v6": data.v6, "v7": data.v7, "v8": data.v8, "v9": data.v9, "v10": data.v10,
-                    "v11": data.v11, "v12": data.v12, "v13": data.v13, "v14": data.v14, "v15": data.v15,
-                    "v16": data.v16, "v17": data.v17, "v18": data.v18, "v19": data.v19, "v20": data.v20,
-                    "v21": data.v21, "v22": data.v22, "v23": data.v23, "v24": data.v24, "v25": data.v25,
-                    "v26": data.v26, "v27": data.v27, "v28": data.v28,
-                    "user_id": data.user_id
-                },
-                "timestamp": datetime.now(),
-                "ip_address": None,  # Will be populated from request if needed
-                "user_agent": None   # Will be populated from request if needed
-            })
-        except Exception as mongo_error:
-            print(f"MongoDB error: {mongo_error}")
+        # Save raw input to MongoDB (optional)
+        mongo_collection = get_mongo_collection()
+        if mongo_collection is not None:
+            try:
+                mongo_collection.insert_one({
+                    "type": "fraud",
+                    "raw_input": {
+                        "time": data.time,
+                        "amount": data.amount,
+                        "v1": data.v1, "v2": data.v2, "v3": data.v3, "v4": data.v4, "v5": data.v5,
+                        "v6": data.v6, "v7": data.v7, "v8": data.v8, "v9": data.v9, "v10": data.v10,
+                        "v11": data.v11, "v12": data.v12, "v13": data.v13, "v14": data.v14, "v15": data.v15,
+                        "v16": data.v16, "v17": data.v17, "v18": data.v18, "v19": data.v19, "v20": data.v20,
+                        "v21": data.v21, "v22": data.v22, "v23": data.v23, "v24": data.v24, "v25": data.v25,
+                        "v26": data.v26, "v27": data.v27, "v28": data.v28,
+                        "user_id": data.user_id
+                    },
+                    "timestamp": datetime.now(),
+                    "ip_address": None,
+                    "user_agent": None
+                })
+            except Exception as mongo_error:
+                print(f"MongoDB error: {mongo_error}")
         
         # Save to PostgreSQL (result with full data)
         import json
@@ -502,29 +557,39 @@ def detect_fraud(data: TransactionInput):
             "legitimate": float(prediction_proba[0])
         }
         
-        pg_cursor.execute(
-            """
-            INSERT INTO reports (user_id, type, input_data, result, confidence, ml_probabilities, created_at) 
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            """,
-            (data.user_id, "fraud", json.dumps(input_data, default=str), result, confidence, json.dumps(ml_probabilities), datetime.now())
-        )
-        pg_conn.commit()
-        
-        # Update analytics
-        pg_cursor.execute(
-            """
-            INSERT INTO analytics (user_id, endpoint, request_count, avg_confidence, success_count, date, created_at)
-            VALUES (%s, %s, 1, %s, 1, CURRENT_DATE, CURRENT_TIMESTAMP)
-            ON CONFLICT (user_id, endpoint, date) 
-            DO UPDATE SET 
-                request_count = analytics.request_count + 1,
-                avg_confidence = (analytics.avg_confidence * analytics.request_count + %s) / (analytics.request_count + 1),
-                success_count = analytics.success_count + 1
-            """,
-            (data.user_id, "/fraud", confidence, confidence)
-        )
-        pg_conn.commit()
+        cursor = get_pg_cursor()
+        if cursor is not None:
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO reports (user_id, type, input_data, result, confidence, ml_probabilities, created_at) 
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (data.user_id, "fraud", json.dumps(input_data, default=str), result, confidence, json.dumps(ml_probabilities), datetime.now())
+                )
+                pg_conn.commit()
+            except Exception as db_error:
+                pg_conn.rollback()
+                print(f"Database error in reports: {db_error}")
+            
+            # Update analytics
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO analytics (user_id, endpoint, request_count, avg_confidence, success_count, date, created_at)
+                    VALUES (%s, %s, 1, %s, 1, CURRENT_DATE, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_id, endpoint, date) 
+                    DO UPDATE SET 
+                        request_count = analytics.request_count + 1,
+                        avg_confidence = (analytics.avg_confidence * analytics.request_count + %s) / (analytics.request_count + 1),
+                        success_count = analytics.success_count + 1
+                    """,
+                    (data.user_id, "/fraud", confidence, confidence)
+                )
+                pg_conn.commit()
+            except Exception as db_error:
+                pg_conn.rollback()
+                print(f"Database error in analytics: {db_error}")
 
         return {
             "result": result,
@@ -557,7 +622,15 @@ def home():
 @app.get("/test-mongo")
 def test_mongo():
     try:
-        mongo_inputs_collection.insert_one({"test": "working", "timestamp": datetime.now()})
-        return {"message": "MongoDB Atlas connected and working!"}
+        mongo_collection = get_mongo_collection()
+        if mongo_collection is None:
+            return {
+                "error": "MongoDB not configured or unreachable",
+                "message": "Set MONGO_URI environment variable to connect"
+            }
+        mongo_collection.insert_one({"test": "working", "timestamp": datetime.now()})
+        return {"message": "MongoDB connected and working!"}
     except Exception as e:
         return {"error": str(e), "message": "MongoDB connection failed"}
+
+# uvicorn main:app --host 192.168.18.251 --port 8002 --reload
