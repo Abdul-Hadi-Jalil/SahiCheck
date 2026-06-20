@@ -633,4 +633,12 @@ def test_mongo():
     except Exception as e:
         return {"error": str(e), "message": "MongoDB connection failed"}
 
-# uvicorn main:app --host 192.168.18.251 --port 8002 --reload
+# ===============================
+# LIVE NEWS (RSS) — new feature, does not change ML endpoints above
+# ===============================
+
+from live_api import router as live_router
+
+app.include_router(live_router)
+
+# uvicorn main:app --host 0.0.0.0 --port 8002 --reload
