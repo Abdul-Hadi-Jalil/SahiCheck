@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:sahicheck_frontend/screens/fake_news_screen.dart';
 import 'package:sahicheck_frontend/screens/fraud_detection_screen.dart';
+import 'package:sahicheck_frontend/screens/live_news_screen.dart';
 import 'package:sahicheck_frontend/screens/phishing_detection_screen.dart';
 import 'package:sahicheck_frontend/services/integration_test.dart';
 
@@ -103,6 +104,16 @@ class HomeScreen extends StatelessWidget {
                   description: "Analyze news articles for credibility",
                   color: Colors.blue,
                   screen: const FakeNewsScreen(),
+                ),
+
+                // Live News Verify (RSS + ML)
+                _buildModuleCard(
+                  context,
+                  icon: Icons.rss_feed,
+                  title: "Live News Verify",
+                  description: "RSS from tech sites + ML check",
+                  color: Colors.teal,
+                  screen: const LiveNewsScreen(),
                 ),
 
                 // Phishing Detection Card

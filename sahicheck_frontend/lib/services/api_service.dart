@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import 'package:sahicheck_frontend/models/live_news_item.dart';
 import 'package:sahicheck_frontend/services/config.dart';
 
 class ApiService {
@@ -132,5 +133,60 @@ class ApiService {
     } catch (e) {
       return false;
     }
+  }
+
+  // --- Live News (RSS) ---
+
+  static Future<List<LiveNewsItem>> _fetchLiveList(String path) async {
+    final uri = Uri.parse('$baseUrl$path');
+    final response = await http.get(uri);
+    if (response.statusCode != 200) {
+      throw Exception('Failed to load $path (${response.statusCode})');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final items = body['items'] as List<dynamic>? ?? [];
+    return items
+        .map((item) => LiveNewsItem.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<List<LiveNewsItem>> fetchLiveNews() =>
+      _fetchLiveList('/api/live/news');
+
+  static Future<List<LiveNewsItem>> fetchLiveReleases() =>
+      _fetchLiveList('/api/live/releases');
+
+  static Future<List<LiveNewsItem>> fetchLiveRumors() =>
+      _fetchLiveList('/api/live/rumors');
+
+  static Future<List<LiveNewsItem>> fetchLiveReviews() =>
+      _fetchLiveList('/api/live/reviews');
+
+  static Future<List<LiveNewsItem>> fetchLiveDeals() =>
+      _fetchLiveList('/api/live/deals');
+
+  static Future<List<LiveNewsItem>> searchLiveNews(String query) async {
+    final uri = Uri.parse('$baseUrl/api/live/search').replace(
+      queryParameters: {'q': query},
+    );
+    final response = await http.get(uri);
+    if (response.statusCode != 200) {
+      throw Exception('Search failed (${response.statusCode})');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final items = body['items'] as List<dynamic>? ?? [];
+    return items
+        .map((item) => LiveNewsItem.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  static Future<WeekReview> fetchWeekReview() async {
+    final uri = Uri.parse('$baseUrl/api/live/week-review');
+    final response = await http.get(uri);
+    if (response.statusCode != 200) {
+      throw Exception('Week review failed (${response.statusCode})');
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return WeekReview.fromJson(body);
   }
 }
