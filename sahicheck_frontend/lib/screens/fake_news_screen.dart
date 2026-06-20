@@ -1,5 +1,8 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:sahicheck_frontend/l10n/app_localizations.dart';
 import 'package:sahicheck_frontend/services/api_service.dart';
+import 'package:sahicheck_frontend/utils/responsive.dart';
 
 class FakeNewsScreen extends StatefulWidget {
   const FakeNewsScreen({super.key});
@@ -14,11 +17,19 @@ class _FakeNewsScreenState extends State<FakeNewsScreen> {
   bool _isLoading = false;
   Map<String, dynamic>? _result;
 
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _textController.dispose();
+    super.dispose();
+  }
+
   Future<void> _detectFakeNews() async {
+    final l10n = AppLocalizations.of(context);
     if (_titleController.text.trim().isEmpty ||
         _textController.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please enter both title and text')),
+        SnackBar(content: Text('${l10n.articleTitle} & ${l10n.articleContent}')),
       );
       return;
     }
@@ -29,154 +40,124 @@ class _FakeNewsScreenState extends State<FakeNewsScreen> {
     });
 
     try {
-      print('Sending fake news detection request...');
-      print('Title: ${_titleController.text.trim()}');
-      print('Text length: ${_textController.text.trim().length}');
+      final userId = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
       final result = await ApiService.detectFakeNews(
         _titleController.text.trim(),
         _textController.text.trim(),
-        'user123', // You can get this from Firebase Auth
+        userId,
       );
-      print('Received result: $result');
       if (!mounted) return;
-      setState(() {
-        _result = result;
-      });
+      setState(() => _result = result);
     } catch (e) {
-      print('Error in fake news detection: $e');
       if (!mounted) return;
-      final message = e.toString();
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
     } finally {
-      if (mounted) {
-        setState(() {
-          _isLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final padding = Responsive.pagePadding(context);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Fake News Detection'),
+        title: Text(l10n.fakeNews),
         backgroundColor: Colors.blue.shade700,
         foregroundColor: Colors.white,
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Text(
-              'Enter news article details to check if it\'s fake or real',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 20),
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: 'Article Title *',
-                hintText: 'Enter the news headline',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.title),
-              ),
-              maxLines: 2,
-              textCapitalization: TextCapitalization.sentences,
-            ),
-            const SizedBox(height: 16),
-            TextField(
-              controller: _textController,
-              decoration: const InputDecoration(
-                labelText: 'Article Content *',
-                hintText: 'Enter the news article text',
-                border: OutlineInputBorder(),
-                prefixIcon: Icon(Icons.article),
-              ),
-              maxLines: 8,
-              textCapitalization: TextCapitalization.sentences,
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton(
-              onPressed: _isLoading ? null : _detectFakeNews,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.blue.shade700,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-              ),
-              child: _isLoading
-                  ? const CircularProgressIndicator(color: Colors.white)
-                  : const Text(
-                      'Analyze Article',
-                      style: TextStyle(fontSize: 16),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: Responsive.maxContentWidth(context)),
+          child: SingleChildScrollView(
+            padding: padding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  l10n.fakeNewsDesc,
+                  style: TextStyle(
+                    fontSize: Responsive.bodySize(context) + 2,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _titleController,
+                  decoration: InputDecoration(
+                    labelText: l10n.articleTitle,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.title),
+                  ),
+                  maxLines: 2,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _textController,
+                  decoration: InputDecoration(
+                    labelText: l10n.articleContent,
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.article),
+                  ),
+                  minLines: 5,
+                  maxLines: 10,
+                ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: _isLoading ? null : _detectFakeNews,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: Colors.blue.shade700,
+                      foregroundColor: Colors.white,
                     ),
+                    child: _isLoading
+                        ? const CircularProgressIndicator(color: Colors.white)
+                        : Text(l10n.analyzeArticle),
+                  ),
+                ),
+                if (_result != null) ...[
+                  const SizedBox(height: 20),
+                  _buildResultCard(l10n),
+                ],
+              ],
             ),
-            const SizedBox(height: 20),
-            if (_result != null) _buildResultCard(),
-          ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildResultCard() {
+  Widget _buildResultCard(AppLocalizations l10n) {
     final result = _result!;
     final isFake = result['result'] == 'Fake News';
-    final confidence = (result['confidence'] as double) * 100;
-    final fakeNewsProbability = result['fake_news_probability'] as double?;
-    final trueNewsProbability = result['true_news_probability'] as double?;
+    final confidence = ((result['confidence'] as num?) ?? 0) * 100;
 
     return Card(
-      elevation: 4,
       child: Padding(
-        padding: const EdgeInsets.all(16.0),
+        padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Icon(
-                  isFake ? Icons.warning : Icons.check_circle,
-                  color: isFake ? Colors.red : Colors.green,
-                  size: 24,
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  isFake ? 'FAKE NEWS DETECTED' : 'REAL NEWS',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: isFake ? Colors.red : Colors.green,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
             Text(
-              'Confidence: ${confidence.toStringAsFixed(1)}%',
-              style: const TextStyle(fontSize: 16),
+              isFake ? l10n.fakeDetected : l10n.realNews,
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isFake ? Colors.red : Colors.green,
+              ),
             ),
             const SizedBox(height: 8),
+            Text('${l10n.confidence}: ${confidence.toStringAsFixed(1)}%'),
+            const SizedBox(height: 8),
             LinearProgressIndicator(
-              value: result['confidence'],
-              backgroundColor: Colors.grey.shade300,
+              value: (result['confidence'] as num?)?.toDouble() ?? 0,
               color: isFake ? Colors.red : Colors.green,
             ),
-            const SizedBox(height: 16),
-            if (fakeNewsProbability != null)
-              Text(
-                "Fake News Probability: ${(fakeNewsProbability * 100).toStringAsFixed(1)}%",
-                style: TextStyle(fontSize: 14, color: Colors.red.shade700),
-              ),
-            if (trueNewsProbability != null)
-              Text(
-                "True News Probability: ${(trueNewsProbability * 100).toStringAsFixed(1)}%",
-                style: TextStyle(fontSize: 14, color: Colors.green.shade700),
-              ),
           ],
         ),
       ),

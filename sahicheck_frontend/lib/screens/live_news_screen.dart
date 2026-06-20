@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:sahicheck_frontend/l10n/app_localizations.dart';
 import 'package:sahicheck_frontend/models/live_news_item.dart';
 import 'package:sahicheck_frontend/services/api_service.dart';
 
@@ -273,9 +274,11 @@ class _LiveNewsScreenState extends State<LiveNewsScreen>
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Live News Verify'),
+        title: Text(l10n.liveNews),
         backgroundColor: Colors.teal.shade700,
         foregroundColor: Colors.white,
         bottom: TabBar(
@@ -314,9 +317,9 @@ class _LiveNewsScreenState extends State<LiveNewsScreen>
                 Expanded(
                   child: TextField(
                     controller: _searchController,
-                    decoration: const InputDecoration(
-                      hintText: 'Search headlines...',
-                      prefixIcon: Icon(Icons.search),
+                    decoration: InputDecoration(
+                      hintText: l10n.searchHeadlines,
+                      prefixIcon: const Icon(Icons.search),
                       border: OutlineInputBorder(),
                       isDense: true,
                     ),

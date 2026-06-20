@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:sahicheck_frontend/l10n/app_localizations.dart';
 import 'package:sahicheck_frontend/services/api_service.dart';
+import 'package:sahicheck_frontend/utils/responsive.dart';
 
 class FraudDetectionScreen extends StatefulWidget {
   const FraudDetectionScreen({super.key});
@@ -217,23 +219,32 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context);
+    final padding = Responsive.pagePadding(context);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Fraud Detection'),
+        title: Text(l10n.fraud),
         backgroundColor: Colors.orange.shade700,
         foregroundColor: Colors.white,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const SizedBox(height: 20),
-            const Text(
-              'Enter transaction details to check for fraud',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-              textAlign: TextAlign.center,
-            ),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(maxWidth: Responsive.maxContentWidth(context)),
+          child: SingleChildScrollView(
+            padding: padding,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 8),
+                Text(
+                  l10n.fraudDesc,
+                  style: TextStyle(
+                    fontSize: Responsive.bodySize(context) + 2,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.all(12),
@@ -447,6 +458,8 @@ class _FraudDetectionScreenState extends State<FraudDetectionScreen> {
             const SizedBox(height: 20),
             if (_result != null) _buildResultCard(),
           ],
+        ),
+          ),
         ),
       ),
     );
