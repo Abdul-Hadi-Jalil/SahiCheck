@@ -10,7 +10,8 @@ class AppConfig {
 
   // Option 1: Running on mobile connected to laptop
   // use ipconfig to find your laptop's local IP address and replace it here
-  static const String baseUrl = 'http://10.177.253.103:8002'; // Your laptop IP (Wi-Fi)
+  static const String baseUrl =
+      'http://10.48.123.103:8002'; // Your laptop IP (Wi-Fi)
 
   // Option 3: Running on web/desktop (localhost)
   // static const String baseUrl = 'http://localhost:8002';

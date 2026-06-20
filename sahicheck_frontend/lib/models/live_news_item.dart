@@ -6,6 +6,11 @@ class LiveNewsItem {
   final String link;
   final String source;
   final String? published;
+  final String? trustResult;
+  final double? trustConfidence;
+  final bool isTrustedSource;
+  final String? trustReason;
+  final String? articleDomain;
 
   LiveNewsItem({
     required this.id,
@@ -14,6 +19,11 @@ class LiveNewsItem {
     required this.link,
     required this.source,
     this.published,
+    this.trustResult,
+    this.trustConfidence,
+    this.isTrustedSource = false,
+    this.trustReason,
+    this.articleDomain,
   });
 
   factory LiveNewsItem.fromJson(Map<String, dynamic> json) {
@@ -24,6 +34,11 @@ class LiveNewsItem {
       link: json['link']?.toString() ?? '',
       source: json['source']?.toString() ?? '',
       published: json['published']?.toString(),
+      trustResult: json['trust_result']?.toString(),
+      trustConfidence: (json['trust_confidence'] as num?)?.toDouble(),
+      isTrustedSource: json['is_trusted_source'] as bool? ?? false,
+      trustReason: json['trust_reason']?.toString(),
+      articleDomain: json['article_domain']?.toString(),
     );
   }
 }

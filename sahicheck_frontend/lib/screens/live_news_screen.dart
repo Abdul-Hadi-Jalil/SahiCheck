@@ -5,7 +5,7 @@ import 'package:sahicheck_frontend/models/live_news_item.dart';
 import 'package:sahicheck_frontend/services/api_service.dart';
 
 /// Browse live tech news from RSS feeds and verify articles
-/// with the existing fake-news ML model (POST /fake-news).
+/// using trusted original publisher sources (official RSS + domain check).
 class LiveNewsScreen extends StatefulWidget {
   const LiveNewsScreen({super.key});
 
@@ -127,8 +127,6 @@ class _LiveNewsScreenState extends State<LiveNewsScreen>
   }
 
   Future<void> _verifyArticle(LiveNewsItem item) async {
-    final userId = FirebaseAuth.instance.currentUser?.uid ?? 'guest';
-
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -136,11 +134,11 @@ class _LiveNewsScreenState extends State<LiveNewsScreen>
     );
 
     try {
-      // Uses existing /fake-news endpoint — no new ML logic
-      final result = await ApiService.detectFakeNews(
-        item.title,
-        item.summary.isNotEmpty ? item.summary : item.title,
-        userId,
+      // Source trust: official RSS publisher + real website domain
+      final result = await ApiService.verifyLiveNewsSource(
+        title: item.title,
+        link: item.link,
+        source: item.source,
       );
       if (!mounted) return;
       Navigator.pop(context);
@@ -155,8 +153,31 @@ class _LiveNewsScreenState extends State<LiveNewsScreen>
   }
 
   void _showVerificationResult(LiveNewsItem item, Map<String, dynamic> result) {
-    final isFake = result['result'] == 'Fake News';
+    final verdict = result['result']?.toString() ?? 'Unverified';
+    final isReal = verdict == 'Real';
+    final isSuspicious = verdict == 'Suspicious';
     final confidence = ((result['confidence'] as num?) ?? 0) * 100;
+    final reason = result['reason']?.toString() ?? '';
+    final domain = result['domain']?.toString() ?? item.articleDomain ?? '';
+    final accountType = result['account_type']?.toString() ?? '';
+
+    Color color;
+    IconData icon;
+    String headline;
+
+    if (isReal) {
+      color = Colors.green;
+      icon = Icons.verified;
+      headline = 'Verified Real Source';
+    } else if (isSuspicious) {
+      color = Colors.red;
+      icon = Icons.warning_amber;
+      headline = 'Suspicious Source';
+    } else {
+      color = Colors.orange;
+      icon = Icons.help_outline;
+      headline = 'Unverified Source';
+    }
 
     showModalBottomSheet(
       context: context,
@@ -169,41 +190,42 @@ class _LiveNewsScreenState extends State<LiveNewsScreen>
           children: [
             Row(
               children: [
-                Icon(
-                  isFake ? Icons.warning_amber : Icons.verified,
-                  color: isFake ? Colors.red : Colors.green,
-                  size: 28,
-                ),
+                Icon(icon, color: color, size: 28),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
-                    isFake ? 'Likely Fake News' : 'Likely Real News',
+                    headline,
                     style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: isFake ? Colors.red : Colors.green,
+                      color: color,
                     ),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 12),
-            Text(
-              item.title,
-              style: const TextStyle(fontWeight: FontWeight.w600),
-            ),
+            Text(item.title, style: const TextStyle(fontWeight: FontWeight.w600)),
             const SizedBox(height: 8),
-            Text('Source: ${item.source}'),
+            Text('Publisher: ${item.source}'),
+            if (domain.isNotEmpty) Text('Official domain: $domain'),
+            if (accountType.isNotEmpty) Text('Account type: $accountType'),
             const SizedBox(height: 12),
-            Text('ML confidence: ${confidence.toStringAsFixed(1)}%'),
+            Text('Trust score: ${confidence.toStringAsFixed(0)}%'),
             const SizedBox(height: 8),
             LinearProgressIndicator(
               value: (result['confidence'] as num?)?.toDouble() ?? 0,
-              color: isFake ? Colors.red : Colors.green,
+              color: color,
             ),
             const SizedBox(height: 16),
             Text(
-              'Verified using SahiCheck TF-IDF + Logistic Regression model.',
+              reason,
+              style: TextStyle(fontSize: 13, color: Colors.grey.shade700),
+            ),
+            const SizedBox(height: 12),
+            Text(
+              'Checked against official RSS feeds and publisher websites '
+              '(The Verge, Ars Technica, Engadget, etc.).',
               style: TextStyle(fontSize: 12, color: Colors.grey.shade600),
             ),
             const SizedBox(height: 16),
@@ -257,8 +279,8 @@ class _LiveNewsScreenState extends State<LiveNewsScreen>
                   Navigator.pop(ctx);
                   _verifyArticle(item);
                 },
-                icon: const Icon(Icons.fact_check),
-                label: const Text('Verify with ML'),
+                icon: const Icon(Icons.verified_user),
+                label: const Text('Verify Original Source'),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.teal.shade700,
                   foregroundColor: Colors.white,
@@ -378,6 +400,12 @@ class _LiveNewsScreenState extends State<LiveNewsScreen>
         itemCount: _items.length,
         itemBuilder: (context, index) {
           final item = _items[index];
+          final trustLabel = item.isTrustedSource
+              ? 'Verified source'
+              : (item.trustResult ?? 'Check source');
+          final trustColor =
+              item.isTrustedSource ? Colors.green : Colors.orange;
+
           return Card(
             margin: const EdgeInsets.only(bottom: 10),
             child: ListTile(
@@ -386,11 +414,31 @@ class _LiveNewsScreenState extends State<LiveNewsScreen>
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
               ),
-              subtitle: Text('${item.source} · Tap to read & verify'),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('${item.source} · ${item.articleDomain ?? 'tap to verify'}'),
+                  const SizedBox(height: 4),
+                  Text(
+                    trustLabel,
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: trustColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+              isThreeLine: true,
               trailing: IconButton(
-                icon: Icon(Icons.fact_check, color: Colors.teal.shade700),
+                icon: Icon(
+                  item.isTrustedSource ? Icons.verified : Icons.verified_user,
+                  color: item.isTrustedSource
+                      ? Colors.green
+                      : Colors.teal.shade700,
+                ),
                 onPressed: () => _verifyArticle(item),
-                tooltip: 'Verify',
+                tooltip: 'Verify source',
               ),
               onTap: () => _openArticleDetail(item),
             ),

@@ -189,4 +189,17 @@ class ApiService {
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return WeekReview.fromJson(body);
   }
+
+  /// Verify article using trusted publisher + official domain (not ML).
+  static Future<Map<String, dynamic>> verifyLiveNewsSource({
+    required String title,
+    required String link,
+    required String source,
+  }) async {
+    return await _postJson('/api/live/verify-source', {
+      'title': title,
+      'link': link,
+      'source': source,
+    });
+  }
 }
