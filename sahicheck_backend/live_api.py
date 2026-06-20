@@ -8,6 +8,7 @@ logic in main.py stays unchanged.
 from typing import Optional
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
 
 from live_feeds import (
     get_all_news,
@@ -19,8 +20,52 @@ from live_feeds import (
     get_week_review,
     search_items,
 )
+from source_trust import TRUSTED_PUBLISHERS
+from source_verify import verify_source_trust
 
 router = APIRouter(prefix="/api/live", tags=["Live News"])
+
+
+class SourceVerifyInput(BaseModel):
+    title: str
+    link: str
+    source: str
+
+
+@router.get("/trusted-publishers")
+def trusted_publishers():
+    """List official publishers used for source-based verification."""
+    return {
+        "count": len(TRUSTED_PUBLISHERS),
+        "publishers": [
+            {
+                "name": name,
+                "domains": info["domains"],
+                "account_type": info["account_type"],
+                "category": info["category"],
+            }
+            for name, info in TRUSTED_PUBLISHERS.items()
+        ],
+        "verification_method": (
+            "Checks RSS publisher name + official website domain in article link. "
+            "Does not use the political fake-news ML model."
+        ),
+    }
+
+
+@router.post("/verify-source")
+def verify_live_source(data: SourceVerifyInput):
+    """
+    Verify if an article is from a real/original trusted source.
+    """
+    result = verify_source_trust(
+        {
+            "title": data.title,
+            "link": data.link,
+            "source": data.source,
+        }
+    )
+    return result
 
 
 @router.get("/sources")

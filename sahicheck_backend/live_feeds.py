@@ -25,6 +25,7 @@ from data_catalog import (
     REVIEW_KEYWORDS,
     RUMOR_KEYWORDS,
 )
+from source_verify import attach_trust_to_item, verify_source_trust
 
 # Cache TTL: 10 minutes (same as TechPulse)
 CACHE_TTL_SECONDS = 600
@@ -71,7 +72,7 @@ def _normalize_entry(entry: Any, source_name: str) -> Dict[str, Any]:
     link = getattr(entry, "link", "") or ""
     summary = _strip_html(getattr(entry, "summary", "") or getattr(entry, "description", ""))
 
-    return {
+    item = {
         "id": _make_item_id(source_name, link, title),
         "title": title,
         "summary": summary[:500] if summary else "",
@@ -79,6 +80,7 @@ def _normalize_entry(entry: Any, source_name: str) -> Dict[str, Any]:
         "source": source_name,
         "published": _parse_published(entry),
     }
+    return attach_trust_to_item(item)
 
 
 def _fetch_feed(url: str, source_name: str, limit: int = 15) -> List[Dict[str, Any]]:
@@ -170,7 +172,7 @@ def get_deals() -> List[Dict[str, Any]]:
     combined = _sort_by_date(_dedupe_items(live_deals + news_deals))
 
     if not combined:
-        return FALLBACK_DEALS.copy()
+        return [attach_trust_to_item(dict(d)) for d in FALLBACK_DEALS.copy()]
     return combined
 
 
@@ -224,5 +226,8 @@ def get_sources_info() -> Dict[str, Any]:
         "note": "No GSMArena, Best Buy API, Amazon API, or web scraping.",
         "news_sources": NEWS_RSS_SOURCES,
         "deals_sources": DEALS_RSS_SOURCES,
-        "verification": "Use existing POST /fake-news ML model on any article title + summary",
+        "verification": (
+            "Source trust: official RSS publisher + matching website domain. "
+            "Optional separate check: POST /fake-news ML model."
+        ),
     }
