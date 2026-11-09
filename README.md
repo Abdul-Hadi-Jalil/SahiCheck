@@ -4,6 +4,14 @@ A Flutter and Python detection prototype that brings phishing URL classification
 
 The project demonstrates separate feature pipelines behind a shared API, Firebase account flows, and persistence of raw inputs and structured prediction reports.
 
+## Mobile interface preview
+
+The mobile entry experience presents SahiCheck as a focused digital-authenticity platform before users access its phishing, news, and fraud detection modules.
+
+<p align="center">
+  <img src="docs/images/sahicheck-mobile-login.png" alt="SahiCheck mobile sign-in interface" width="360">
+</p>
+
 ## Stack
 
 | Layer | Technologies |
